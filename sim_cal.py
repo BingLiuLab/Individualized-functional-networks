@@ -6,128 +6,98 @@
     determined with the data/subject name as the unique index.
 """
 
-import scipy.io as scio
-import numpy as np
-import random
-import csv
 import os
+import numpy as np
 import pandas as pd
-import math
-# import pingouin as pg
+import scipy.io as scio
 
-os.environ["OUTDATED_IGNORE"] = "1"
+def similarity(v_a, v_b):
+    """Calculate the similarity between two vectors."""
+    num = sum(v_a == v_b)
+    return num / v_a.shape[0]
 
-def similarity(v_a,v_b):
-    num=0
-    for i in range(v_a.shape[0]):
-        if v_a[i]==v_b[i]:
-            num+=1
-    return num/v_a.shape[0]
+def load_network_labels(filepath):
+    """Load network labels from a .mat file."""
+    network_label = scio.loadmat(filepath)
+    temp_label_lh = network_label['lh_labels'].flatten()
+    temp_label_rh = network_label['rh_labels'].flatten()
+    return np.hstack((temp_label_lh, temp_label_rh))
 
-draw_path="/mnt/data0/home/qwang/DATA/HCP/Output/"
-work_path='/mnt/data0/home/qwang/DATA/HCP/'
+def process_subject(subject, type_label, save_path, s):
+    """Process data for a single subject."""
+    local_lh = pd.read_csv(f"{save_path}Orig2_{type_label}_homo2{s}lh.csv", header=None).values
+    local_rh = pd.read_csv(f"{save_path}Orig2_{type_label}_homo2{s}rh.csv", header=None).values
+    local = np.vstack((local_lh, local_rh))
 
+    local_delta_lh = pd.read_csv(f"{save_path}local2_{type_label}_homo2{s}lh.csv", header=None).values
+    local_delta_rh = pd.read_csv(f"{save_path}local2_{type_label}_homo2{s}rh.csv", header=None).values
+    local_delta = np.vstack((local_delta_lh, local_delta_rh))
 
-str1="12"
-# for ss in ["R1_LR","R1_RL","R2_LR","R2_RL"]:
-for ss in ["R1_LR"]:
-    Type='HCPtest_12_'+ss.replace('_','')
-    print(Type)
-    name=pd.read_csv(work_path+"HCP_test.csv",header=None)
-   
-    ls=name.values
-    ls_base=ls[:,0]
-    n=ls_base.shape[0]
+    label_lh = pd.read_csv(f"{save_path}final_iter_label{s}pial_lh.csv", header=None).values
+    label_rh = pd.read_csv(f"{save_path}final_iter_label{s}pial_rh.csv", header=None).values
+    label = np.vstack((label_lh, label_rh))
 
-    # # 17network statistics 
-    Network_Label=scio.loadmat('/mnt/data0/home/qwang/'+'1000subjects_reference/1000subjects_clusters017_ref.mat')
-    Temp_Label_lh=Network_Label['lh_labels']
-    Temp_Label_rh=Network_Label['rh_labels']
-    Temp_Label_lh=Temp_Label_lh.flatten()
-    Temp_Label_rh=Temp_Label_rh.flatten()
-    Temp_Label=np.hstack((Temp_Label_lh,Temp_Label_rh))
-    # Temp_entro=pd.read_csv("/mnt/data0/home/qwang/DATA/HCP/Template_17network_entropy.csv",header=None).values
+    return local, local_delta, label
 
-    s="_0.045_"
-    Res=[]
-    Res_del=[]
-    Res_del_abs=[]
-    Ent=[]
-    Ent_del=[]
-    homo_v=[]
-    homo_v_delta=[]
+def calculate_homogeneity(local, local_delta, label, temp_label):
+    """Calculate homogeneity metrics for a subject."""
+    n = local.shape[0]
+    stats_homo = np.zeros(17)
+    stats_homo_delta = np.zeros(17)
+    stats_homo_abs_delta = np.zeros(17)
+    num_homo = np.zeros(17)
+
+    for i in range(n):
+        if label[i] == 0:
+            continue
+        t = int(label[i] - 1)
+        stats_homo[t] += local[i]
+        stats_homo_delta[t] += local_delta[i]
+        stats_homo_abs_delta[t] += abs(local_delta[i])
+        num_homo[t] += 1
+
+    res_homo = stats_homo / num_homo
+    res_homo_delta = stats_homo_delta / num_homo
+    res_homo_delta_abs = stats_homo_abs_delta / num_homo
+
+    return res_homo, res_homo_delta, res_homo_delta_abs
+
+def main(draw_path, work_path, type_label, network_label_path):
+    """Main function to process all subjects and save results."""
+    name = pd.read_csv(f"{work_path}HCP_test.csv", header=None)
+    ls_base = name.values[:, 0]
+
+    temp_label = load_network_labels(network_label_path)
+
+    s = "_0.045_"
+    res, res_del, res_del_abs = [], [], []
+    homo_v, homo_v_delta = [], []
 
     for subject in ls_base:
-        Stats_homo=np.zeros(17)
-        Stats_homo_delta=np.zeros(17)
-        Stats_homo_abs_delta=np.zeros(17)
-        num_homo=np.zeros(17)
-        Res_homo=np.zeros(17)
-        Res_homo_delta=np.zeros(17)
-        Res_homo_delta_abs=np.zeros(17)
-        Entro=np.zeros(17)
-        Entro_delta=np.zeros(17)
+        subject = str(int(subject))
+        save_path = f"{work_path}Output/{subject}/"
 
-        subject=str(int(subject))
-    
-        save_path=work_path+"Output/"+subject+"/"
+        local, local_delta, label = process_subject(subject, type_label, save_path, s)
+        homo_v.append(local.T.flatten())
+        homo_v_delta.append(local_delta.T.flatten())
 
-        # input file
-        Local_lh=pd.read_csv(save_path+"Orig2_"+Type+"_homo2"+s+"lh.csv",header=None).values
-        Local_rh=pd.read_csv(save_path+"Orig2_"+Type+"_homo2"+s+"rh.csv",header=None).values
-        Local_lh=np.array(Local_lh)
-        Local_rh=np.array(Local_rh)
-        Local=np.vstack((Local_lh,Local_rh))
-        homo_v.append(Local.T.flatten())
-        n=Local.shape[0]
+        res_homo, res_homo_delta, res_homo_delta_abs = calculate_homogeneity(local, local_delta, label, temp_label)
 
-        Local_delta_lh=pd.read_csv(save_path+"local2_"+Type+"_homo2"+s+"lh.csv",header=None).values
-        Local_delta_rh=pd.read_csv(save_path+"local2_"+Type+"_homo2"+s+"rh.csv",header=None).values
-        Local_delta_lh=np.array(Local_delta_lh)
-        Local_delta_rh=np.array(Local_delta_rh)
-        Local_delta=np.vstack((Local_delta_lh,Local_delta_rh))
-        
-        homo_v_delta.append(Local_delta.T.flatten())
+        res.append(res_homo)
+        res_del.append(res_homo_delta)
+        res_del_abs.append(res_homo_delta_abs)
 
+    np.savetxt(f"{work_path}{type_label}_homo_vertex2{s}_20.csv", np.array(homo_v), delimiter=',', fmt='%.6f')
+    np.savetxt(f"{work_path}{type_label}_homo_vertex_delta2{s}_20.csv", np.array(homo_v_delta), delimiter=',', fmt='%.6f')
+    np.savetxt(f"{work_path}{type_label}_homo2{s}_20.csv", np.array(res), delimiter=',', fmt='%.6f')
+    np.savetxt(f"{work_path}{type_label}_homo_delta2{s}_20.csv", np.array(res_del), delimiter=',', fmt='%.6f')
 
-        label_lh=pd.read_csv(save_path+"final_iter_label"+s+"pial_lh.csv",header=None).values
-        label_rh=pd.read_csv(save_path+"final_iter_label"+s+"pial_rh.csv",header=None).values
-        label_lh=np.array(label_lh)
-        label_rh=np.array(label_rh)
-        label=np.vstack((label_lh,label_rh))
+    print("Processing complete.")
 
-        for i in range(n):
-            if label[i]==0:
-                continue
-        
-            t=int(label[i]-1)
-            # t=int(Temp_Label[i]-1)
-            
-            Stats_homo[t]+=Local[i]
-            Stats_homo_delta[t]+=Local_delta[i]
-            Stats_homo_abs_delta[t]+=abs(Local_delta[i])
-            num_homo[t]+=1
-    
-        
-        for j in range(17):
-            Res_homo[j]=Stats_homo[j]/num_homo[j]
-            Res_homo_delta[j]=Stats_homo_delta[j]/num_homo[j]
-            Res_homo_delta_abs[j]=Stats_homo_abs_delta[j]/num_homo[j]
-            e_t=num_homo[j]/n
-            if e_t==0:
-                Entro[j]=0
-            Entro[j]=0-e_t*np.log2(e_t)
-            Entro_delta[j]=0-e_t*np.log2(e_t)-Temp_entro[j]
+if __name__ == "__main__":
+    draw_path = "/mnt/data0/home/qwang/DATA/HCP/Output/"
+    work_path = '/mnt/data0/home/qwang/DATA/HCP/'
+    type_label = 'HCPtest_12_R1LR'
+    network_label_path = '/mnt/data0/home/qwang/1000subjects_reference/1000subjects_clusters017_ref.mat'
 
-        Res.append(Res_homo)
-        Res_del.append(Res_homo_delta)
-        Res_del_abs.append(Res_homo_delta_abs)
-        Ent.append(Entro)
-        Ent_del.append(Entro_delta)
-
-    np.savetxt(work_path+Type+'_homo_vertex2'+s+'_20.csv',np.array(homo_v),delimiter=',',fmt='%.6f')
-    np.savetxt(work_path+Type+'_homo_vertex_delta2'+s+'_20.csv',np.array(homo_v_delta),delimiter=',',fmt='%.6f')
-    np.savetxt(work_path+Type+'_homo2'+s+'_20.csv',np.array(Res),delimiter=',',fmt='%.6f')
-    np.savetxt(work_path+Type+'_homo_delta2'+s+'_20.csv',np.array(Res_del),delimiter=',',fmt='%.6f')
-
-    print("OK")
+    main(draw_path, work_path, type_label, network_label_path)
